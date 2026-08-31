@@ -7,7 +7,6 @@ import {
   EncounterStatus,
   ClaimStatus,
   ClaimLineStatus,
-  DenialCategory,
   DenialStatus,
 } from '@prisma/client';
 
@@ -187,7 +186,7 @@ async function main() {
       data: {
         patientId: patient.id,
         providerId: provider.id,
-        dateOfService: day((i * 3) % 180),
+        dateOfService: day((i * 3) % 179 + 1),
         placeOfService: i % 17 === 0 ? null : i % 4 === 0 ? '22' : '11',
         status: i < 100 ? EncounterStatus.BILLED : EncounterStatus.CODED,
         notes: 'Synthetic demo encounter.',
@@ -231,6 +230,14 @@ async function main() {
       });
     }
   }
+  const denialReasons = [
+    ['CO-16', 'CODING', 'Missing information', 'N130'],
+    ['CO-197', 'AUTHORIZATION', 'No authorization', 'N30'],
+    ['CO-29', 'TIMELY_FILING', 'Timely filing limit exceeded', 'M76'],
+    ['CO-27', 'ELIGIBILITY', 'Coverage terminated', 'N130'],
+    ['CO-50', 'MEDICAL_NECESSITY', 'Not medically necessary', 'N30'],
+    ['CO-18', 'DUPLICATE', 'Duplicate claim', 'M76'],
+  ] as const;
   for (let i = 0; i < 100; i++) {
     const encounter = encounters[i];
     const patient = patients[i % patients.length];
@@ -240,7 +247,7 @@ async function main() {
       where: { encounterId: encounter.id },
       orderBy: { id: 'asc' },
     });
-    const totalCharge = charges.reduce((s, l) => s + l.chargeAmount * l.units, 0);
+    const totalCharge = charges.reduce((sum, line) => sum + line.chargeAmount * line.units, 0);
     const status =
       i < 3
         ? ClaimStatus.DRAFT
@@ -259,20 +266,54 @@ async function main() {
                     : i === 97
                       ? ClaimStatus.APPEALED
                       : ClaimStatus.CLOSED;
-    const rate = payer.allowedRate;
+    const isDraftOrReady = status === ClaimStatus.DRAFT || status === ClaimStatus.READY;
+    const isSubmitted = !isDraftOrReady;
+    const isAdjudicated = (
+      [
+        ClaimStatus.PAID,
+        ClaimStatus.PARTIALLY_PAID,
+        ClaimStatus.DENIED,
+        ClaimStatus.APPEALED,
+        ClaimStatus.CLOSED,
+      ] as ClaimStatus[]
+    ).includes(status);
     const isDenied = status === ClaimStatus.DENIED || status === ClaimStatus.APPEALED;
     const isWrittenOff = status === ClaimStatus.CLOSED;
+    const billedAt = isSubmitted ? new Date(encounter.dateOfService.getTime() + 86400000) : null;
+    const paymentDate = isAdjudicated
+      ? new Date(
+          Math.min(
+            billedAt!.getTime() + payer.avgDaysToPay * 86400000,
+            now.getTime() - ((i % 5) + 1) * 86400000,
+          ),
+        )
+      : null;
+    const createdAt = new Date(encounter.dateOfService.getTime() + 3600000);
     const allowed =
-      status === ClaimStatus.DRAFT || isDenied || isWrittenOff ? 0 : totalCharge * rate;
-    const paid = (
-      [ClaimStatus.PAID, ClaimStatus.ACCEPTED, ClaimStatus.CLOSED] as string[]
-    ).includes(status)
-      ? allowed * 0.8
-      : status === ClaimStatus.PARTIALLY_PAID || status === ClaimStatus.APPEALED
-        ? allowed * 0.45
-        : 0;
-    const adjustment = isDenied ? 0 : isWrittenOff ? totalCharge : totalCharge - allowed;
-    const patientResp = isDenied || isWrittenOff ? 0 : Math.max(0, allowed - paid);
+      isAdjudicated && !isDenied && !isWrittenOff ? totalCharge * payer.allowedRate : 0;
+    const paid =
+      status === ClaimStatus.PAID
+        ? allowed * 0.8
+        : status === ClaimStatus.PARTIALLY_PAID
+          ? allowed * 0.45
+          : 0;
+    const adjustment = isDenied
+      ? 0
+      : isWrittenOff
+        ? totalCharge
+        : isAdjudicated
+          ? totalCharge - allowed
+          : 0;
+    const patientResponsibility = isAdjudicated && !isDenied && !isWrittenOff ? allowed - paid : 0;
+    const balance = isDraftOrReady
+      ? 0
+      : isDenied
+        ? totalCharge
+        : isWrittenOff
+          ? 0
+          : isAdjudicated
+            ? totalCharge - paid - adjustment
+            : totalCharge;
     const claim = await prisma.claim.create({
       data: {
         claimNumber: `CLM-${String(i + 1).padStart(6, '0')}`,
@@ -285,42 +326,37 @@ async function main() {
         totalAllowed: allowed,
         totalPaid: paid,
         totalAdjustment: adjustment,
-        patientResponsibility: patientResp,
-        balance: isDenied ? totalCharge : isWrittenOff ? 0 : totalCharge - paid - adjustment,
-        billedAt: day((i * 3) % 180),
-        submittedAt: day(((i * 3) % 180) - 1),
-        cleanOnFirstPass: i % 9 !== 0,
+        patientResponsibility,
+        balance,
+        billedAt,
+        submittedAt: billedAt,
+        cleanOnFirstPass: isDraftOrReady ? null : i % 9 !== 0,
+        createdAt,
       },
     });
-    const remittance = (
-      [
-        ClaimStatus.PAID,
-        ClaimStatus.PARTIALLY_PAID,
-        ClaimStatus.DENIED,
-        ClaimStatus.ACCEPTED,
-        ClaimStatus.APPEALED,
-        ClaimStatus.CLOSED,
-      ] as string[]
-    ).includes(status)
-      ? await prisma.remittance.upsert({
-          where: { checkNumber: `ERA-${payer.id}-${i}` },
-          update: {},
-          create: {
+    const remittance = isAdjudicated
+      ? await prisma.remittance.create({
+          data: {
             checkNumber: `ERA-${payer.id}-${i}`,
             payerId: payer.id,
-            paymentDate: day(((i * 3) % 180) - payer.avgDaysToPay),
+            paymentDate: paymentDate!,
             totalPaid: paid,
-            postedAt: day(((i * 3) % 180) - payer.avgDaysToPay),
+            postedAt: paymentDate,
           },
         })
       : null;
     for (let lineIndex = 0; lineIndex < charges.length; lineIndex++) {
       const charge = charges[lineIndex];
-      const lineAllowed =
-        status === ClaimStatus.DRAFT || status === ClaimStatus.DENIED
-          ? 0
-          : charge.chargeAmount * rate;
-      const linePaid = lineAllowed * (paid && allowed ? paid / allowed : 0);
+      const lineCharge = charge.chargeAmount * charge.units;
+      const lineAllowed = allowed ? lineCharge * payer.allowedRate : 0;
+      const linePaid = allowed ? lineAllowed * (paid / allowed) : 0;
+      const lineAdjustment = isDenied
+        ? 0
+        : isWrittenOff
+          ? lineCharge
+          : isAdjudicated
+            ? lineCharge - lineAllowed
+            : 0;
       const line = await prisma.claimLine.create({
         data: {
           claimId: claim.id,
@@ -328,15 +364,12 @@ async function main() {
           cptCode: charge.cptCode,
           modifiers: charge.modifiers,
           units: charge.units,
-          chargeAmount: charge.chargeAmount * charge.units,
+          chargeAmount: lineCharge,
           allowedAmount: lineAllowed,
           paidAmount: linePaid,
-          adjustmentAmount: isDenied
-            ? 0
-            : isWrittenOff
-              ? charge.chargeAmount
-              : charge.chargeAmount - lineAllowed,
-          patientResponsibility: Math.max(0, lineAllowed - linePaid),
+          adjustmentAmount: lineAdjustment,
+          patientResponsibility:
+            isAdjudicated && !isDenied && !isWrittenOff ? lineAllowed - linePaid : 0,
           diagnosisPointers: charge.diagnosisPointers,
           status: isDenied
             ? ClaimLineStatus.DENIED
@@ -353,31 +386,57 @@ async function main() {
             claimLineId: line.id,
             allowedAmount: lineAllowed,
             paidAmount: linePaid,
-            adjustmentAmount: isDenied
-              ? 0
-              : isWrittenOff
-                ? charge.chargeAmount
-                : charge.chargeAmount - lineAllowed,
-            patientResponsibility: Math.max(0, lineAllowed - linePaid),
-            carc: isDenied ? 'CO-16' : null,
+            adjustmentAmount: lineAdjustment,
+            patientResponsibility:
+              isAdjudicated && !isDenied && !isWrittenOff ? lineAllowed - linePaid : 0,
+            carc: isDenied ? denialReasons[i % denialReasons.length][0] : null,
+            rarc: isDenied ? denialReasons[i % denialReasons.length][3] : null,
           },
         });
     }
     await prisma.claimEvent.create({
-      data: { claimId: claim.id, type: 'CREATED', description: 'Claim created from encounter.' },
+      data: {
+        claimId: claim.id,
+        type: 'CREATED',
+        description: 'Claim created from encounter.',
+        createdAt,
+      },
     });
-    if (status !== ClaimStatus.DRAFT)
+    if (isSubmitted)
       await prisma.claimEvent.create({
-        data: { claimId: claim.id, type: 'SUBMITTED', description: 'Claim submitted to payer.' },
+        data: {
+          claimId: claim.id,
+          type: 'SUBMITTED',
+          description: 'Claim submitted to payer.',
+          createdAt: billedAt!,
+        },
+      });
+    if (status === ClaimStatus.PAID || status === ClaimStatus.PARTIALLY_PAID)
+      await prisma.claimEvent.create({
+        data: {
+          claimId: claim.id,
+          type: 'PAYMENT_POSTED',
+          description: 'Payer response adjudicated and payment posted.',
+          createdAt: paymentDate!,
+        },
       });
     if (isDenied || isWrittenOff) {
+      const reason = denialReasons[i % denialReasons.length];
+      await prisma.claimEvent.create({
+        data: {
+          claimId: claim.id,
+          type: 'DENIED',
+          description: `Claim denied: ${reason[2]}.`,
+          createdAt: paymentDate!,
+        },
+      });
       await prisma.denial.create({
         data: {
           claimId: claim.id,
-          carc: 'CO-16',
-          rarc: 'N130',
-          reason: 'Missing information',
-          category: DenialCategory.CODING,
+          carc: reason[0],
+          rarc: reason[3],
+          reason: reason[2],
+          category: reason[1],
           status:
             status === ClaimStatus.APPEALED
               ? DenialStatus.APPEALED
@@ -385,9 +444,19 @@ async function main() {
                 ? DenialStatus.WRITTEN_OFF
                 : DenialStatus.OPEN,
           notes: 'Synthetic denial for demonstration.',
+          createdAt: paymentDate!,
         },
       });
     }
+    if (isWrittenOff)
+      await prisma.claimEvent.create({
+        data: {
+          claimId: claim.id,
+          type: 'WRITTEN_OFF',
+          description: 'Remaining denial balance written off.',
+          createdAt: new Date(paymentDate!.getTime() + 86400000),
+        },
+      });
   }
   console.log(
     `Seeded ${payers.length} payers, ${patients.length} patients, ${encounters.length} encounters, and 100 claims.`,

@@ -11,6 +11,10 @@ export default async function EncounterDetail({ params }: { params: Promise<{ id
       provider: true,
       diagnoses: { include: { diagnosis: true }, orderBy: { sequence: 'asc' } },
       chargeLines: { orderBy: { createdAt: 'asc' } },
+      claims: {
+        select: { id: true, claimNumber: true, status: true },
+        orderBy: { createdAt: 'desc' },
+      },
     },
   });
   if (!encounter) return <div className="card p-8">Encounter not found.</div>;
@@ -43,6 +47,8 @@ export default async function EncounterDetail({ params }: { params: Promise<{ id
         diagnosisCodes={diagnosisCodes}
         existingCharges={encounter.chargeLines}
         nextSequence={encounter.diagnoses.length + 1}
+        existingClaim={encounter.claims[0]}
+        encounterStatus={encounter.status}
       />
     </div>
   );

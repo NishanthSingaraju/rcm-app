@@ -1,6 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useMemo, useState } from 'react';
 
 type Code = { code: string; description: string; defaultCharge?: number };
@@ -26,6 +27,8 @@ export function ChargeCapture({
   existingCharges,
   nextSequence,
   diagnosisCodes,
+  existingClaim,
+  encounterStatus,
 }: {
   encounterId: string;
   procedures: Code[];
@@ -33,6 +36,8 @@ export function ChargeCapture({
   diagnosisCodes: Array<{ code: string; description: string }>;
   existingCharges: Charge[];
   nextSequence: number;
+  existingClaim?: { id: string; claimNumber: string; status: string };
+  encounterStatus: string;
 }) {
   const router = useRouter();
   const [dxSearch, setDxSearch] = useState('');
@@ -261,14 +266,28 @@ export function ChargeCapture({
           </tbody>
         </table>
         <div className="border-t border-slate-100 p-5">
-          <button
-            type="button"
-            onClick={createClaim}
-            disabled={!existingCharges.length}
-            className="rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
-          >
-            Create claim
-          </button>
+          {encounterStatus === 'BILLED' ? (
+            <div className="flex flex-wrap items-center gap-3 text-sm">
+              <span className="text-slate-500">This encounter is already billed.</span>
+              {existingClaim ? (
+                <Link
+                  href={`/claims/${existingClaim.id}`}
+                  className="rounded-lg bg-blue-600 px-4 py-2.5 font-semibold text-white"
+                >
+                  View {existingClaim.claimNumber}
+                </Link>
+              ) : null}
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={createClaim}
+              disabled={!existingCharges.length}
+              className="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
+            >
+              Create claim
+            </button>
+          )}
         </div>
       </section>
     </div>
