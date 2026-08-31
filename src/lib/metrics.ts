@@ -1,5 +1,7 @@
 import { round2 } from './money';
 
+const ADJUDICATED_STATUSES = ['PAID', 'PARTIALLY_PAID', 'DENIED', 'CLOSED', 'APPEALED'];
+
 export type MetricClaim = {
   status: string;
   balance: number;
@@ -46,16 +48,17 @@ export function cleanClaimRate(claims: MetricClaim[]): number {
     : 0;
 }
 export function denialRate(claims: MetricClaim[]): number {
-  const adjudicated = claims.filter((c) =>
-    ['PAID', 'PARTIALLY_PAID', 'DENIED', 'CLOSED'].includes(c.status),
-  );
+  const adjudicated = claims.filter((c) => ADJUDICATED_STATUSES.includes(c.status));
   return adjudicated.length
     ? round2(adjudicated.filter((c) => c.status === 'DENIED').length / adjudicated.length)
     : 0;
 }
 export function netCollectionRate(claims: MetricClaim[]): number {
-  const denominator = claims.reduce((s, c) => s + c.totalCharge - c.totalAdjustment, 0);
-  return denominator > 0 ? round2(claims.reduce((s, c) => s + c.totalPaid, 0) / denominator) : 0;
+  const adjudicated = claims.filter((c) => ADJUDICATED_STATUSES.includes(c.status));
+  const denominator = adjudicated.reduce((s, c) => s + c.totalCharge - c.totalAdjustment, 0);
+  return denominator > 0
+    ? round2(adjudicated.reduce((s, c) => s + c.totalPaid, 0) / denominator)
+    : 0;
 }
 export function firstPassYield(claims: MetricClaim[]): number {
   return cleanClaimRate(claims);

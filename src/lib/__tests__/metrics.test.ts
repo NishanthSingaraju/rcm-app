@@ -44,7 +44,10 @@ describe('RCM metrics', () => {
       ]),
     ).toBe(0.5));
   it('calculates net collection rate and zero denominator', () => {
-    expect(netCollectionRate([{ ...claim(1), totalPaid: 80 }])).toBe(0.8);
+    const paidClaim = { ...claim(1), status: 'PAID', totalPaid: 80 };
+    const inFlightClaim = { ...claim(2), status: 'SUBMITTED', totalCharge: 1000 };
+    expect(netCollectionRate([paidClaim])).toBe(0.8);
+    expect(netCollectionRate([paidClaim, inFlightClaim])).toBe(0.8);
     expect(netCollectionRate([])).toBe(0);
   });
   it('calculates first pass yield and top denial reasons', () => {
