@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adjudicateClaim } from '../adjudicate';
+import { adjudicateClaim, hashString } from '../adjudicate';
 
 const input = (claimNumber = 'SAFE-CLAIM') => ({
   claimNumber,
@@ -11,6 +11,14 @@ const input = (claimNumber = 'SAFE-CLAIM') => ({
 describe('claim adjudication', () => {
   it('is deterministic', () =>
     expect(adjudicateClaim(input(), 'test')).toEqual(adjudicateClaim(input(), 'test')));
+  it('uses a 10% denial threshold', () => {
+    const deniedClaim = 'THRESHOLD-1-0';
+    const acceptedClaim = 'THRESHOLD-8-7';
+    expect(hashString(`0:${deniedClaim}`) % 100).toBe(9);
+    expect(hashString(`7:${acceptedClaim}`) % 100).toBe(10);
+    expect(adjudicateClaim(input(deniedClaim), 0).status).toBe('DENIED');
+    expect(adjudicateClaim(input(acceptedClaim), 7).status).not.toBe('DENIED');
+  });
   it('applies allowed rate with rounding', () => {
     const result = adjudicateClaim(
       {
@@ -32,7 +40,7 @@ describe('claim adjudication', () => {
     expect(result.lines[0].patientResponsibility).toBe(60);
     expect(result.lines[0].paidAmount).toBe(0);
   });
-  it('returns denial totals as zero paid and full adjustment', () => {
+  it('returns denial totals as zero paid and no adjustment', () => {
     let result = adjudicateClaim(input('DENIAL-CLAIM'), 'denial');
     let suffix = 0;
     while (result.status !== 'DENIED' && suffix < 100)
