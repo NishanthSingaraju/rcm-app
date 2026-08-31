@@ -1,36 +1,24 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ClearCycle RCM
 
-## Getting Started
+ClearCycle is a synthetic healthcare Revenue Cycle Management demo built with Next.js, Prisma, SQLite, and Recharts. It demonstrates charge capture, claim scrubbing, deterministic payer adjudication, remittances, denials, aging, and operational KPIs.
 
-First, run the development server:
+## Setup
 
 ```bash
+npm install
+npx prisma migrate dev
+npm run seed
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Use `npm run db:reset` to recreate the SQLite database and deterministic demo data. The app is available at `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Walkthrough
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The dashboard shows A/R aging, claims by status, denial reasons, and core collection KPIs. Claims provides a worklist and claim-level scrubber, line, and audit detail. Patients, encounters, denials, and remittances expose the seeded operational data.
 
-## Learn More
+## Architecture
 
-To learn more about Next.js, take a look at the following resources:
+Pure deterministic domain logic lives in `src/lib/money.ts`, `scrubber.ts`, `adjudicate.ts`, and `metrics.ts`; it has no Prisma dependency and is covered by Vitest. `src/lib/rcm-service.ts` owns persistence and transitions, while App Router server components handle reads and API handlers handle mutations.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+All data is synthetic. This is a demonstration application, not a certified billing system, clearinghouse, or source of medical or financial advice.

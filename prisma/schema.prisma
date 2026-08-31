@@ -1,0 +1,365 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum PlanType {
+  COMMERCIAL
+  MEDICARE
+  MEDICAID
+  SELF_PAY
+}
+
+enum Sex {
+  M
+  F
+  U
+}
+
+enum SexSpecific {
+  M
+  F
+  ANY
+}
+
+enum PolicyRank {
+  PRIMARY
+  SECONDARY
+}
+
+enum EncounterStatus {
+  OPEN
+  CODED
+  BILLED
+}
+
+enum ClaimStatus {
+  DRAFT
+  READY
+  SUBMITTED
+  ACCEPTED
+  REJECTED
+  PAID
+  PARTIALLY_PAID
+  DENIED
+  APPEALED
+  CLOSED
+}
+
+enum ClaimLineStatus {
+  OPEN
+  PAID
+  DENIED
+  ADJUSTED
+}
+
+enum EditSeverity {
+  ERROR
+  WARNING
+}
+
+enum DenialCategory {
+  ELIGIBILITY
+  CODING
+  AUTHORIZATION
+  TIMELY_FILING
+  DUPLICATE
+  MEDICAL_NECESSITY
+  OTHER
+}
+
+enum DenialStatus {
+  OPEN
+  IN_PROGRESS
+  APPEALED
+  WRITTEN_OFF
+  RESOLVED
+}
+
+model Payer {
+  id           String            @id @default(cuid())
+  name         String
+  payerId      String            @unique
+  planType     PlanType
+  allowedRate  Float
+  avgDaysToPay Int
+  policies     InsurancePolicy[]
+  claims       Claim[]
+  remittances  Remittance[]
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+}
+
+model Patient {
+  id          String            @id @default(cuid())
+  mrn         String            @unique
+  firstName   String
+  lastName    String
+  dob         DateTime?
+  sex         Sex
+  phone       String?
+  addressLine String?
+  city        String?
+  state       String?
+  zip         String?
+  policies    InsurancePolicy[]
+  encounters  Encounter[]
+  claims      Claim[]
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+}
+
+model InsurancePolicy {
+  id              String     @id @default(cuid())
+  patientId       String
+  payerId         String
+  memberId        String
+  groupNumber     String?
+  rank            PolicyRank
+  effectiveFrom   DateTime
+  effectiveTo     DateTime?
+  copay           Float
+  deductible      Float
+  deductibleMet   Float
+  coinsuranceRate Float
+  patient         Patient    @relation(fields: [patientId], references: [id])
+  payer           Payer      @relation(fields: [payerId], references: [id])
+  claims          Claim[]
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@index([patientId])
+  @@index([payerId])
+}
+
+model Provider {
+  id         String      @id @default(cuid())
+  npi        String      @unique
+  firstName  String
+  lastName   String
+  specialty  String
+  taxonomy   String?
+  encounters Encounter[]
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+}
+
+model ProcedureCode {
+  id                  String   @id @default(cuid())
+  code                String   @unique
+  description         String
+  defaultCharge       Float
+  isEvalAndManagement Boolean
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+model DiagnosisCode {
+  id          String               @id @default(cuid())
+  code        String               @unique
+  description String
+  sexSpecific SexSpecific          @default(ANY)
+  encounters  EncounterDiagnosis[]
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+}
+
+model Encounter {
+  id             String               @id @default(cuid())
+  patientId      String
+  providerId     String
+  dateOfService  DateTime
+  placeOfService String?
+  status         EncounterStatus
+  notes          String?
+  patient        Patient              @relation(fields: [patientId], references: [id])
+  provider       Provider             @relation(fields: [providerId], references: [id])
+  diagnoses      EncounterDiagnosis[]
+  chargeLines    ChargeLine[]
+  claims         Claim[]
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  @@index([patientId])
+  @@index([providerId])
+  @@index([dateOfService])
+}
+
+model EncounterDiagnosis {
+  id            String        @id @default(cuid())
+  encounterId   String
+  diagnosisCode String
+  sequence      Int
+  encounter     Encounter     @relation(fields: [encounterId], references: [id], onDelete: Cascade)
+  diagnosis     DiagnosisCode @relation(fields: [diagnosisCode], references: [code])
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([encounterId])
+  @@index([diagnosisCode])
+}
+
+model ChargeLine {
+  id                String    @id @default(cuid())
+  encounterId       String
+  cptCode           String
+  modifiers         String
+  units             Int
+  chargeAmount      Float
+  diagnosisPointers String
+  encounter         Encounter @relation(fields: [encounterId], references: [id], onDelete: Cascade)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([encounterId])
+}
+
+model Claim {
+  id                    String           @id @default(cuid())
+  claimNumber           String           @unique
+  patientId             String
+  encounterId           String
+  payerId               String
+  policyId              String?
+  status                ClaimStatus
+  totalCharge           Float
+  totalAllowed          Float
+  totalPaid             Float
+  totalAdjustment       Float
+  patientResponsibility Float
+  balance               Float
+  billedAt              DateTime?
+  submittedAt           DateTime?
+  lastScrubbedAt        DateTime?
+  cleanOnFirstPass      Boolean?
+  patient               Patient          @relation(fields: [patientId], references: [id])
+  encounter             Encounter        @relation(fields: [encounterId], references: [id])
+  payer                 Payer            @relation(fields: [payerId], references: [id])
+  policy                InsurancePolicy? @relation(fields: [policyId], references: [id])
+  lines                 ClaimLine[]
+  edits                 ClaimEdit[]
+  events                ClaimEvent[]
+  remittanceLines       RemittanceLine[]
+  denials               Denial[]
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+
+  @@index([patientId])
+  @@index([encounterId])
+  @@index([payerId])
+  @@index([policyId])
+  @@index([status])
+}
+
+model ClaimLine {
+  id                    String           @id @default(cuid())
+  claimId               String
+  lineNumber            Int
+  cptCode               String
+  modifiers             String
+  units                 Int
+  chargeAmount          Float
+  allowedAmount         Float
+  paidAmount            Float
+  adjustmentAmount      Float
+  patientResponsibility Float
+  diagnosisPointers     String
+  status                ClaimLineStatus
+  claim                 Claim            @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  remittanceLines       RemittanceLine[]
+  denials               Denial[]
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+
+  @@index([claimId])
+}
+
+model ClaimEdit {
+  id        String       @id @default(cuid())
+  claimId   String
+  severity  EditSeverity
+  code      String
+  field     String?
+  message   String
+  claim     Claim        @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@index([claimId])
+}
+
+model ClaimEvent {
+  id          String   @id @default(cuid())
+  claimId     String
+  type        String
+  description String
+  claim       Claim    @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([claimId])
+}
+
+model Remittance {
+  id          String           @id @default(cuid())
+  checkNumber String           @unique
+  payerId     String
+  paymentDate DateTime
+  totalPaid   Float
+  postedAt    DateTime?
+  payer       Payer            @relation(fields: [payerId], references: [id])
+  lines       RemittanceLine[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@index([payerId])
+  @@index([paymentDate])
+}
+
+model RemittanceLine {
+  id                    String     @id @default(cuid())
+  remittanceId          String
+  claimId               String
+  claimLineId           String
+  allowedAmount         Float
+  paidAmount            Float
+  adjustmentAmount      Float
+  patientResponsibility Float
+  carc                  String?
+  rarc                  String?
+  remittance            Remittance @relation(fields: [remittanceId], references: [id], onDelete: Cascade)
+  claim                 Claim      @relation(fields: [claimId], references: [id])
+  claimLine             ClaimLine  @relation(fields: [claimLineId], references: [id])
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+
+  @@index([remittanceId])
+  @@index([claimId])
+  @@index([claimLineId])
+}
+
+model Denial {
+  id          String         @id @default(cuid())
+  claimId     String
+  claimLineId String?
+  carc        String
+  rarc        String?
+  reason      String
+  category    DenialCategory
+  status      DenialStatus
+  assignedTo  String?
+  notes       String?
+  claim       Claim          @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  claimLine   ClaimLine?     @relation(fields: [claimLineId], references: [id])
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@index([claimId])
+  @@index([claimLineId])
+  @@index([category])
+  @@index([status])
+}
