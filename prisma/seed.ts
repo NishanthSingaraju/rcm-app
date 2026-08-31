@@ -42,7 +42,7 @@ async function main() {
     ['Medicaid', 'MEDICAID', PlanType.MEDICAID, 0.54, 35],
     ['Self Pay', 'SELF', PlanType.SELF_PAY, 1, 7],
   ] as const;
-  const payers = [];
+  const payers: Array<{ id: string; allowedRate: number; avgDaysToPay: number }> = [];
   for (const [name, payerId, planType, allowedRate, avgDaysToPay] of payerDefs) {
     payers.push(
       await prisma.payer.create({ data: { name, payerId, planType, allowedRate, avgDaysToPay } }),
@@ -239,7 +239,23 @@ async function main() {
     ['CO-50', 'MEDICAL_NECESSITY', 'Not medically necessary', 'N30'],
     ['CO-18', 'DUPLICATE', 'Duplicate claim', 'M76'],
   ] as const;
-  const denialIndexes = new Set([8, 9, 11, 22, 28, 34, 67, 72]);
+  const adjudicatedIndexes = Array.from({ length: 100 }, (_, i) => i).filter((i) => {
+    if (i < 2) return false;
+    const ageDays = ((i * 3) % 179) + 1;
+    return ageDays > payers[i % 7].avgDaysToPay + 3;
+  });
+  const denialIndexes = new Set(
+    Array.from(
+      { length: 8 },
+      (_, index) => adjudicatedIndexes[Math.floor((index * adjudicatedIndexes.length) / 8)],
+    ),
+  );
+  const eligibleIndexes = adjudicatedIndexes.filter((i) => !denialIndexes.has(i));
+  const appealedIndex = eligibleIndexes[eligibleIndexes.length - 1];
+  const closedIndexes = new Set(eligibleIndexes.slice(-3, -1));
+  const partialIndexes = new Set(
+    eligibleIndexes.filter((i) => i !== appealedIndex && !closedIndexes.has(i)).slice(0, 10),
+  );
   for (let i = 0; i < 100; i++) {
     const encounter = encounters[i];
     const patient = patients[i % patients.length];
@@ -250,23 +266,25 @@ async function main() {
       orderBy: { id: 'asc' },
     });
     const totalCharge = charges.reduce((sum, line) => sum + line.chargeAmount * line.units, 0);
+    const ageDays = ((i * 3) % 179) + 1;
+    const payerResponseReceived = ageDays > payer.avgDaysToPay + 3;
     const status = denialIndexes.has(i)
       ? ClaimStatus.DENIED
       : i === 0
         ? ClaimStatus.DRAFT
         : i === 1
           ? ClaimStatus.READY
-          : i === 38
-            ? ClaimStatus.SUBMITTED
-            : i === 44
-              ? ClaimStatus.ACCEPTED
-              : i >= 79 && i < 89
-                ? ClaimStatus.PARTIALLY_PAID
-                : i === 96
+          : !payerResponseReceived
+            ? ageDays <= 7
+              ? ClaimStatus.SUBMITTED
+              : ClaimStatus.ACCEPTED
+            : partialIndexes.has(i)
+              ? ClaimStatus.PARTIALLY_PAID
+              : closedIndexes.has(i)
+                ? ClaimStatus.CLOSED
+                : i === appealedIndex
                   ? ClaimStatus.APPEALED
-                  : i === 95 || i === 97
-                    ? ClaimStatus.CLOSED
-                    : ClaimStatus.PAID;
+                  : ClaimStatus.PAID;
     const isDraftOrReady = status === ClaimStatus.DRAFT || status === ClaimStatus.READY;
     const isSubmitted = !isDraftOrReady;
     const isAdjudicated = (
