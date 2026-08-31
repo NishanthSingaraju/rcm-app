@@ -2,14 +2,27 @@ import { describe, expect, it } from 'vitest';
 import { scrubClaim, type ScrubInput } from '../scrubber';
 
 const base = (): ScrubInput => ({
-  patient: { dob: new Date('1980-01-01'), sex: 'F' }, payer: { planType: 'COMMERCIAL' },
-  policy: { effectiveFrom: new Date('2020-01-01') }, dateOfService: new Date('2025-01-01'),
-  provider: { npi: '1234567890' }, placeOfService: '11',
+  patient: { dob: new Date('1980-01-01'), sex: 'F' },
+  payer: { planType: 'COMMERCIAL' },
+  policy: { effectiveFrom: new Date('2020-01-01') },
+  dateOfService: new Date('2025-01-01'),
+  provider: { npi: '1234567890' },
+  placeOfService: '11',
   diagnoses: [{ sequence: 1, sexSpecific: 'ANY' }],
-  lines: [{ cptCode: '99213', modifiers: '', units: 1, chargeAmount: 100, diagnosisPointers: '1', isEvalAndManagement: true }],
+  lines: [
+    {
+      cptCode: '99213',
+      modifiers: '',
+      units: 1,
+      chargeAmount: 100,
+      diagnosisPointers: '1',
+      isEvalAndManagement: true,
+    },
+  ],
   asOf: new Date('2025-01-15'),
 });
-const codes = (input: Partial<ScrubInput>) => scrubClaim({ ...base(), ...input }).map((e) => e.code);
+const codes = (input: Partial<ScrubInput>) =>
+  scrubClaim({ ...base(), ...input }).map((e) => e.code);
 
 describe('claim scrubber', () => {
   it.each([
@@ -27,10 +40,17 @@ describe('claim scrubber', () => {
     ['W004', { lines: [{ ...base().lines[0], chargeAmount: 5001 }] }],
   ])('%s fires', (code, input) => expect(codes(input)).toContain(code));
   it('does not fire rules for valid data', () => expect(scrubClaim(base())).toEqual([]));
-  it('skips insurance validation for self pay', () => expect(codes({ payer: { planType: 'SELF_PAY' }, policy: null })).not.toContain('E002'));
+  it('skips insurance validation for self pay', () =>
+    expect(codes({ payer: { planType: 'SELF_PAY' }, policy: null })).not.toContain('E002'));
   it('accepts valid modifier 25 and diagnosis pointers', () => {
     const input = base();
-    input.lines.push({ cptCode: '93000', modifiers: '', units: 1, chargeAmount: 50, diagnosisPointers: '1' });
+    input.lines.push({
+      cptCode: '93000',
+      modifiers: '',
+      units: 1,
+      chargeAmount: 50,
+      diagnosisPointers: '1',
+    });
     input.lines[0].modifiers = '25';
     expect(codes(input)).not.toContain('W002');
   });
