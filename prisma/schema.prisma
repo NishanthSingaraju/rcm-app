@@ -363,3 +363,84 @@ model Denial {
   @@index([category])
   @@index([status])
 }
+
+model PolicySource {
+  id           String           @id @default(cuid())
+  name         String
+  payer        String
+  url          String
+  isDemo       Boolean          @default(false)
+  enabled      Boolean          @default(true)
+  checkedAt    DateTime?
+  lastError    String?
+  lockedUntil  DateTime?
+  snapshots    PolicySnapshot[]
+  updates      PolicyUpdate[]
+  createdAt    DateTime         @default(now())
+
+  @@unique([url, isDemo])
+}
+
+model PolicySnapshot {
+  id        String       @id @default(cuid())
+  sourceId  String
+  text      String
+  hash      String
+  createdAt DateTime     @default(now())
+  source    PolicySource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([sourceId, createdAt])
+}
+
+model PolicyUpdate {
+  id             String       @id @default(cuid())
+  sourceId       String
+  title          String
+  category       String
+  priority       String
+  codes          String
+  summary        String
+  previousText   String
+  currentText    String
+  recommendation String
+  rationale      String
+  effectiveAt    DateTime?
+  reviewed       Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  source         PolicySource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([sourceId, createdAt])
+}
+
+model ChargeCatalog {
+  id         String       @id @default("active")
+  filename   String
+  isDemo     Boolean      @default(false)
+  importedAt DateTime     @default(now())
+  entries    ChargeEntry[]
+}
+
+model ChargeEntry {
+  id          String        @id @default(cuid())
+  catalogId   String
+  code        String
+  description String
+  department  String
+  charge      Float
+  annualVolume Int?
+  catalog     ChargeCatalog @relation(fields: [catalogId], references: [id], onDelete: Cascade)
+
+  @@index([catalogId, code])
+}
+
+model PolicyBriefing {
+  id        String   @id @default(cuid())
+  day       String
+  isDemo    Boolean
+  inputHash String
+  engine    String
+  text      String
+  createdAt DateTime @default(now())
+
+  @@unique([day, isDemo])
+}
