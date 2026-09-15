@@ -10,9 +10,9 @@
     "test": "vitest",
     "format": "prettier --write \"src/**/*.{ts,tsx}\" \"prisma/**/*.{ts,tsx}\"",
     "db:reset": "prisma migrate reset --force && npm run seed",
-    "seed": "tsx prisma/seed.ts",
-    "policies:seed": "tsx prisma/seed-policies.ts",
-    "policies:daily": "tsx scripts/policies-daily.ts",
+    "seed": "tsx --env-file-if-exists=.env prisma/seed.ts",
+    "policies:seed": "tsx --env-file-if-exists=.env prisma/seed-policies.ts",
+    "policies:daily": "tsx --env-file-if-exists=.env scripts/policies-daily.ts",
     "typecheck": "next typegen && tsc --noEmit"
   },
   "dependencies": {
