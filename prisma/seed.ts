@@ -9,12 +9,20 @@ import {
   ClaimLineStatus,
   DenialStatus,
 } from '@prisma/client';
+import { seedPolicyWatch } from './seed-policy-watch';
 
 const prisma = new PrismaClient();
 const now = new Date();
 const day = (n: number) => new Date(now.getTime() - n * 86400000);
 
 async function main() {
+  await prisma.auditFinding.deleteMany();
+  await prisma.chargemasterItem.deleteMany();
+  await prisma.chargemaster.deleteMany();
+  await prisma.dailyDigest.deleteMany();
+  await prisma.policyChange.deleteMany();
+  await prisma.policySnapshot.deleteMany();
+  await prisma.policySource.deleteMany();
   await prisma.remittanceLine.deleteMany();
   await prisma.remittance.deleteMany();
   await prisma.denial.deleteMany();
@@ -186,7 +194,7 @@ async function main() {
       data: {
         patientId: patient.id,
         providerId: provider.id,
-        dateOfService: day((i * 3) % 179 + 1),
+        dateOfService: day(((i * 3) % 179) + 1),
         placeOfService: i % 17 === 0 ? null : i % 4 === 0 ? '22' : '11',
         status: i < 100 ? EncounterStatus.BILLED : EncounterStatus.CODED,
         notes: 'Synthetic demo encounter.',
@@ -460,6 +468,10 @@ async function main() {
   }
   console.log(
     `Seeded ${payers.length} payers, ${patients.length} patients, ${encounters.length} encounters, and 100 claims.`,
+  );
+  const policyWatch = await seedPolicyWatch(prisma);
+  console.log(
+    `Seeded ${policyWatch.sources} payer policy pages with ${policyWatch.changes} detected changes and a sample chargemaster.`,
   );
 }
 

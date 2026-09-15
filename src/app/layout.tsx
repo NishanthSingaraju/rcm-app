@@ -27,6 +27,7 @@ export default function RootLayout({ children }: LayoutProps<'/'>) {
                 ['/claims', 'Claims'],
                 ['/denials', 'Denials'],
                 ['/remittances', 'Remittances'],
+                ['/policy-watch', 'Policy Watch'],
               ].map(([href, label]) => (
                 <Link
                   key={href}
