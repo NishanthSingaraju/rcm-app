@@ -1,5 +1,5 @@
 type EditSeverity = 'ERROR' | 'WARNING';
-export type ClaimEditResult = {
+type ClaimEditResult = {
   code: string;
   severity: EditSeverity;
   field?: string;
