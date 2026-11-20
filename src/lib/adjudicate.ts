@@ -1,6 +1,6 @@
 import { round2 } from './money';
 
-export type AdjudicationInput = {
+type AdjudicationInput = {
   claimNumber: string;
   submittedAt: Date | string;
   payer: { allowedRate: number; avgDaysToPay: number };
@@ -26,7 +26,7 @@ type AdjudicatedLine = AdjudicationInput['lines'][number] & {
   patientResponsibility: number;
   status: 'PAID' | 'PARTIALLY_PAID' | 'DENIED';
 };
-export type AdjudicationResult = {
+type AdjudicationResult = {
   status: 'PAID' | 'PARTIALLY_PAID' | 'DENIED';
   lines: AdjudicatedLine[];
   totalCharge: number;

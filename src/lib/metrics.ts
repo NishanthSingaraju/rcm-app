@@ -1,6 +1,6 @@
 import { round2 } from './money';
 
-export type MetricClaim = {
+type MetricClaim = {
   status: string;
   balance: number;
   totalPaid: number;
@@ -57,9 +57,7 @@ export function netCollectionRate(claims: MetricClaim[]): number {
   const denominator = claims.reduce((s, c) => s + c.totalCharge - c.totalAdjustment, 0);
   return denominator > 0 ? round2(claims.reduce((s, c) => s + c.totalPaid, 0) / denominator) : 0;
 }
-export function firstPassYield(claims: MetricClaim[]): number {
-  return cleanClaimRate(claims);
-}
+export { cleanClaimRate as firstPassYield };
 export function topDenialReasons(
   denials: Array<{ carc: string; reason?: string }>,
   n: number,
