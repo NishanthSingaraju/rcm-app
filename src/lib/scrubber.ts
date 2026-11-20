@@ -1,4 +1,4 @@
-export type EditSeverity = 'ERROR' | 'WARNING';
+type EditSeverity = 'ERROR' | 'WARNING';
 export type ClaimEditResult = {
   code: string;
   severity: EditSeverity;
