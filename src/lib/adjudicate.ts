@@ -19,7 +19,7 @@ export type AdjudicationInput = {
     diagnosisPointers?: string;
   }>;
 };
-export type AdjudicatedLine = AdjudicationInput['lines'][number] & {
+type AdjudicatedLine = AdjudicationInput['lines'][number] & {
   allowedAmount: number;
   paidAmount: number;
   adjustmentAmount: number;
@@ -39,7 +39,7 @@ export type AdjudicationResult = {
   denial?: { carc: string; rarc?: string; reason: string; category: string };
 };
 
-export function hashString(value: string): number {
+function hashString(value: string): number {
   let hash = 2166136261;
   for (let i = 0; i < value.length; i++) {
     hash ^= value.charCodeAt(i);
