@@ -81,17 +81,18 @@ enum DenialStatus {
 }
 
 model Payer {
-  id           String            @id @default(cuid())
-  name         String
-  payerId      String            @unique
-  planType     PlanType
-  allowedRate  Float
-  avgDaysToPay Int
-  policies     InsurancePolicy[]
-  claims       Claim[]
-  remittances  Remittance[]
-  createdAt    DateTime          @default(now())
-  updatedAt    DateTime          @updatedAt
+  id            String            @id @default(cuid())
+  name          String
+  payerId       String            @unique
+  planType      PlanType
+  allowedRate   Float
+  avgDaysToPay  Int
+  policies      InsurancePolicy[]
+  claims        Claim[]
+  remittances   Remittance[]
+  policySources PolicySource[]
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
 }
 
 model Patient {
@@ -362,4 +363,153 @@ model Denial {
   @@index([claimLineId])
   @@index([category])
   @@index([status])
+}
+
+enum PolicyChangeStatus {
+  NEW
+  REVIEWED
+  ACTIONED
+  DISMISSED
+}
+
+enum ChangeSeverity {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum AuditFindingType {
+  CODE_REMOVED
+  CODE_ADDED
+  PRIOR_AUTH
+  NOT_COVERED
+  MODIFIER_RULE
+  FREQUENCY_LIMIT
+  POLICY_MENTION
+}
+
+enum AuditFindingStatus {
+  OPEN
+  RESOLVED
+  IGNORED
+}
+
+model PolicySource {
+  id            String           @id @default(cuid())
+  payerId       String
+  name          String
+  url           String
+  description   String?
+  enabled       Boolean          @default(true)
+  lastCheckedAt DateTime?
+  lastChangedAt DateTime?
+  lastError     String?
+  payer         Payer            @relation(fields: [payerId], references: [id])
+  snapshots     PolicySnapshot[]
+  changes       PolicyChange[]
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@index([payerId])
+}
+
+model PolicySnapshot {
+  id          String         @id @default(cuid())
+  sourceId    String
+  fetchedAt   DateTime       @default(now())
+  contentHash String
+  title       String?
+  content     String
+  byteLength  Int
+  source      PolicySource   @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  changesFrom PolicyChange[] @relation("ChangeFrom")
+  changesTo   PolicyChange[] @relation("ChangeTo")
+
+  @@index([sourceId, fetchedAt])
+}
+
+model PolicyChange {
+  id             String             @id @default(cuid())
+  sourceId       String
+  fromSnapshotId String?
+  toSnapshotId   String
+  detectedAt     DateTime           @default(now())
+  severity       ChangeSeverity
+  status         PolicyChangeStatus @default(NEW)
+  title          String
+  addedLines     String
+  removedLines   String
+  affectedCodes  String
+  signals        String             @default("[]")
+  aiSummary      String?
+  aiModel        String?
+  notes          String?
+  source         PolicySource       @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  fromSnapshot   PolicySnapshot?    @relation("ChangeFrom", fields: [fromSnapshotId], references: [id])
+  toSnapshot     PolicySnapshot     @relation("ChangeTo", fields: [toSnapshotId], references: [id])
+  findings       AuditFinding[]
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@index([sourceId])
+  @@index([detectedAt])
+  @@index([status])
+}
+
+model DailyDigest {
+  id          String   @id @default(cuid())
+  digestDate  DateTime @unique
+  changeCount Int
+  sourceCount Int
+  headline    String
+  body        String
+  aiModel     String?
+  createdAt   DateTime @default(now())
+}
+
+model Chargemaster {
+  id         String             @id @default(cuid())
+  name       String
+  fileName   String?
+  itemCount  Int
+  uploadedAt DateTime           @default(now())
+  auditedAt  DateTime?
+  items      ChargemasterItem[]
+  findings   AuditFinding[]
+}
+
+model ChargemasterItem {
+  id             String       @id @default(cuid())
+  chargemasterId String
+  cptCode        String
+  description    String
+  price          Float
+  modifiers      String?
+  revenueCode    String?
+  department     String?
+  chargemaster   Chargemaster @relation(fields: [chargemasterId], references: [id], onDelete: Cascade)
+
+  @@index([chargemasterId])
+  @@index([cptCode])
+}
+
+model AuditFinding {
+  id             String             @id @default(cuid())
+  chargemasterId String
+  changeId       String?
+  cptCode        String
+  type           AuditFindingType
+  severity       ChangeSeverity
+  status         AuditFindingStatus @default(OPEN)
+  message        String
+  recommendation String
+  evidence       String?
+  chargemaster   Chargemaster       @relation(fields: [chargemasterId], references: [id], onDelete: Cascade)
+  change         PolicyChange?      @relation(fields: [changeId], references: [id], onDelete: SetNull)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@index([chargemasterId])
+  @@index([changeId])
+  @@index([cptCode])
 }
