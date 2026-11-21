@@ -14,7 +14,7 @@ const money = (v: number) =>
 const percent = (v: number) => `${(v * 100).toFixed(1)}%`;
 export default async function Home() {
   const claims = await prisma.claim.findMany({
-    include: { denials: true },
+    include: { denials: true, encounter: true },
     orderBy: { updatedAt: 'desc' },
   });
   const events = await prisma.claimEvent.findMany({
@@ -28,8 +28,8 @@ export default async function Home() {
   const chargesMTD = claims
     .filter(
       (c) =>
-        c.createdAt.getMonth() === currentDate.getMonth() &&
-        c.createdAt.getFullYear() === currentDate.getFullYear(),
+        c.encounter.dateOfService.getMonth() === currentDate.getMonth() &&
+        c.encounter.dateOfService.getFullYear() === currentDate.getFullYear(),
     )
     .reduce((s, c) => s + c.totalCharge, 0);
   const trailing90Start = new Date(currentDate);

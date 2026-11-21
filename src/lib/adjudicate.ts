@@ -68,7 +68,7 @@ export function adjudicateClaim(
   const submittedAt =
     input.submittedAt instanceof Date ? input.submittedAt : new Date(input.submittedAt);
   const paymentDate = new Date(submittedAt.getTime() + input.payer.avgDaysToPay * 86400000);
-  if (roll < 18) {
+  if (roll < 10) {
     const reason =
       denialTable[hashString(`${input.claimNumber}:${seed}:reason`) % denialTable.length];
     const lines = input.lines.map((line) => ({

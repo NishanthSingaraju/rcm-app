@@ -9,6 +9,7 @@ import {
   ClaimLineStatus,
   DenialStatus,
 } from '@prisma/client';
+import { round2 } from '../src/lib/money';
 
 const prisma = new PrismaClient();
 const now = new Date();
@@ -41,7 +42,7 @@ async function main() {
     ['Medicaid', 'MEDICAID', PlanType.MEDICAID, 0.54, 35],
     ['Self Pay', 'SELF', PlanType.SELF_PAY, 1, 7],
   ] as const;
-  const payers = [];
+  const payers: Array<{ id: string; allowedRate: number; avgDaysToPay: number }> = [];
   for (const [name, payerId, planType, allowedRate, avgDaysToPay] of payerDefs) {
     payers.push(
       await prisma.payer.create({ data: { name, payerId, planType, allowedRate, avgDaysToPay } }),
@@ -186,7 +187,7 @@ async function main() {
       data: {
         patientId: patient.id,
         providerId: provider.id,
-        dateOfService: day((i * 3) % 179 + 1),
+        dateOfService: day(((i * 3) % 179) + 1),
         placeOfService: i % 17 === 0 ? null : i % 4 === 0 ? '22' : '11',
         status: i < 100 ? EncounterStatus.BILLED : EncounterStatus.CODED,
         notes: 'Synthetic demo encounter.',
@@ -238,6 +239,23 @@ async function main() {
     ['CO-50', 'MEDICAL_NECESSITY', 'Not medically necessary', 'N30'],
     ['CO-18', 'DUPLICATE', 'Duplicate claim', 'M76'],
   ] as const;
+  const adjudicatedIndexes = Array.from({ length: 100 }, (_, i) => i).filter((i) => {
+    if (i < 2) return false;
+    const ageDays = ((i * 3) % 179) + 1;
+    return ageDays > payers[i % 7].avgDaysToPay + 3;
+  });
+  const denialIndexes = new Set(
+    Array.from(
+      { length: 8 },
+      (_, index) => adjudicatedIndexes[Math.floor((index * adjudicatedIndexes.length) / 8)],
+    ),
+  );
+  const eligibleIndexes = adjudicatedIndexes.filter((i) => !denialIndexes.has(i));
+  const appealedIndex = eligibleIndexes[eligibleIndexes.length - 1];
+  const closedIndexes = new Set(eligibleIndexes.slice(-3, -1));
+  const partialIndexes = new Set(
+    eligibleIndexes.filter((i) => i !== appealedIndex && !closedIndexes.has(i)).slice(0, 10),
+  );
   for (let i = 0; i < 100; i++) {
     const encounter = encounters[i];
     const patient = patients[i % patients.length];
@@ -248,24 +266,25 @@ async function main() {
       orderBy: { id: 'asc' },
     });
     const totalCharge = charges.reduce((sum, line) => sum + line.chargeAmount * line.units, 0);
-    const status =
-      i < 3
+    const ageDays = ((i * 3) % 179) + 1;
+    const payerResponseReceived = ageDays > payer.avgDaysToPay + 3;
+    const status = denialIndexes.has(i)
+      ? ClaimStatus.DENIED
+      : i === 0
         ? ClaimStatus.DRAFT
-        : i < 6
+        : i === 1
           ? ClaimStatus.READY
-          : i < 20
-            ? ClaimStatus.SUBMITTED
-            : i < 34
-              ? ClaimStatus.ACCEPTED
-              : i < 65
-                ? ClaimStatus.PAID
-                : i < 80
-                  ? ClaimStatus.PARTIALLY_PAID
-                  : i < 97
-                    ? ClaimStatus.DENIED
-                    : i === 97
-                      ? ClaimStatus.APPEALED
-                      : ClaimStatus.CLOSED;
+          : !payerResponseReceived
+            ? ageDays <= 7
+              ? ClaimStatus.SUBMITTED
+              : ClaimStatus.ACCEPTED
+            : partialIndexes.has(i)
+              ? ClaimStatus.PARTIALLY_PAID
+              : closedIndexes.has(i)
+                ? ClaimStatus.CLOSED
+                : i === appealedIndex
+                  ? ClaimStatus.APPEALED
+                  : ClaimStatus.PAID;
     const isDraftOrReady = status === ClaimStatus.DRAFT || status === ClaimStatus.READY;
     const isSubmitted = !isDraftOrReady;
     const isAdjudicated = (
@@ -277,7 +296,9 @@ async function main() {
         ClaimStatus.CLOSED,
       ] as ClaimStatus[]
     ).includes(status);
-    const isDenied = status === ClaimStatus.DENIED || status === ClaimStatus.APPEALED;
+    const isDenied = status === ClaimStatus.DENIED;
+    const isAppealed = status === ClaimStatus.APPEALED;
+    const hasDenial = isDenied || isAppealed;
     const isWrittenOff = status === ClaimStatus.CLOSED;
     const billedAt = isSubmitted ? new Date(encounter.dateOfService.getTime() + 86400000) : null;
     const paymentDate = isAdjudicated
@@ -293,10 +314,12 @@ async function main() {
       isAdjudicated && !isDenied && !isWrittenOff ? totalCharge * payer.allowedRate : 0;
     const paid =
       status === ClaimStatus.PAID
-        ? allowed * 0.8
-        : status === ClaimStatus.PARTIALLY_PAID
-          ? allowed * 0.45
-          : 0;
+        ? allowed * 0.85
+        : isAppealed
+          ? allowed
+          : status === ClaimStatus.PARTIALLY_PAID
+            ? allowed * 0.45
+            : 0;
     const adjustment = isDenied
       ? 0
       : isWrittenOff
@@ -411,7 +434,7 @@ async function main() {
           createdAt: billedAt!,
         },
       });
-    if (status === ClaimStatus.PAID || status === ClaimStatus.PARTIALLY_PAID)
+    if (status === ClaimStatus.PAID || status === ClaimStatus.PARTIALLY_PAID || isAppealed)
       await prisma.claimEvent.create({
         data: {
           claimId: claim.id,
@@ -420,16 +443,26 @@ async function main() {
           createdAt: paymentDate!,
         },
       });
-    if (isDenied || isWrittenOff) {
+    if (hasDenial || isWrittenOff) {
       const reason = denialReasons[i % denialReasons.length];
-      await prisma.claimEvent.create({
-        data: {
-          claimId: claim.id,
-          type: 'DENIED',
-          description: `Claim denied: ${reason[2]}.`,
-          createdAt: paymentDate!,
-        },
-      });
+      if (hasDenial)
+        await prisma.claimEvent.create({
+          data: {
+            claimId: claim.id,
+            type: 'DENIED',
+            description: `Claim denied: ${reason[2]}.`,
+            createdAt: paymentDate!,
+          },
+        });
+      if (isAppealed)
+        await prisma.claimEvent.create({
+          data: {
+            claimId: claim.id,
+            type: 'APPEALED',
+            description: 'Denial appealed and resolved in the patient’s favor.',
+            createdAt: new Date(paymentDate!.getTime() + 86400000),
+          },
+        });
       await prisma.denial.create({
         data: {
           claimId: claim.id,
@@ -439,7 +472,7 @@ async function main() {
           category: reason[1],
           status:
             status === ClaimStatus.APPEALED
-              ? DenialStatus.APPEALED
+              ? DenialStatus.RESOLVED
               : isWrittenOff
                 ? DenialStatus.WRITTEN_OFF
                 : DenialStatus.OPEN,
@@ -457,6 +490,44 @@ async function main() {
           createdAt: new Date(paymentDate!.getTime() + 86400000),
         },
       });
+  }
+  const partialClaims = await prisma.claim.findMany({
+    where: { status: { in: [ClaimStatus.PAID, ClaimStatus.PARTIALLY_PAID] } },
+    orderBy: { claimNumber: 'asc' },
+    select: {
+      id: true,
+      claimNumber: true,
+      patientResponsibility: true,
+      balance: true,
+      events: true,
+    },
+  });
+  for (const claim of partialClaims) {
+    const claimSequence = Number(claim.claimNumber.slice(-6));
+    if (claimSequence % 9 === 0 || claimSequence === 80) continue;
+    const payerPayment = claim.events.find((event) => event.type === 'PAYMENT_POSTED');
+    const paymentDate = payerPayment
+      ? new Date(
+          Math.min(payerPayment.createdAt.getTime() + 2 * 86400000, now.getTime() - 86400000),
+        )
+      : new Date(now.getTime() - 86400000);
+    const payment = round2(Math.min(claim.patientResponsibility * 0.95, claim.balance));
+    if (payment <= 0) continue;
+    await prisma.claim.update({
+      where: { id: claim.id },
+      data: {
+        balance: { decrement: payment },
+        totalPaid: { increment: payment },
+        patientResponsibility: { decrement: payment },
+        events: {
+          create: {
+            type: 'PAYMENT_POSTED',
+            description: `Patient payment of $${payment.toFixed(2)} posted.`,
+            createdAt: paymentDate,
+          },
+        },
+      },
+    });
   }
   console.log(
     `Seeded ${payers.length} payers, ${patients.length} patients, ${encounters.length} encounters, and 100 claims.`,

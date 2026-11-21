@@ -359,6 +359,7 @@ export async function postPatientPayment(claimId: string, amount: number) {
     where: { id: claimId },
     data: {
       balance: { decrement: payment },
+      totalPaid: { increment: payment },
       patientResponsibility: { decrement: Math.min(payment, claim.patientResponsibility) },
       events: {
         create: {
